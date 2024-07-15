@@ -1,58 +1,70 @@
+# AWS News Processing and Notion Integration
 
-# Welcome to your CDK Python project!
+## 概要
 
-This is a blank project for CDK development with Python.
+このプロジェクトは、AWS の最新ニュースを自動的に取得し、処理して、Notion データベースに追加するシステムです。AWS CDK を使用してインフラストラクチャをデプロイし、AWS Lambda 関数と Step Functions を利用してワークフローを管理します。
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## 主な機能
 
-This project is set up like a standard Python project.  The initialization
-process also creates a virtualenv within this project, stored under the `.venv`
-directory.  To create the virtualenv it assumes that there is a `python3`
-(or `python` for Windows) executable in your path with access to the `venv`
-package. If for any reason the automatic creation of the virtualenv fails,
-you can create the virtualenv manually.
+- AWS の最新ニュースフィードから過去 5 日間の記事を取得
+- 記事のタイトルに基づいて関連する AWS サービスをタグ付け
+- 記事の内容をスクレイピングし、日本語に翻訳
+- 翻訳された内容の要約を生成
+- 処理された記事を Notion データベースに追加
 
-To manually create a virtualenv on MacOS and Linux:
+## セットアップ
 
-```
-$ python3 -m venv .venv
-```
+1. リポジトリをクローンします：
 
-After the init process completes and the virtualenv is created, you can use the following
-step to activate your virtualenv.
+   ```
+   git clone[リポジトリ URL]
+   cd[プロジェクトディレクトリ]
+   ```
 
-```
-$ source .venv/bin/activate
-```
+2. 仮想環境を作成し、アクティベートします：
 
-If you are a Windows platform, you would activate the virtualenv like this:
+   ```
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
 
-```
-% .venv\Scripts\activate.bat
-```
+3. 必要なパッケージをインストールします：
 
-Once the virtualenv is activated, you can install the required dependencies.
+   ```
+   pip install -r requirements.txt
+   ```
 
-```
-$ pip install -r requirements.txt
-```
+4. AWS CDK をインストールします：
 
-At this point you can now synthesize the CloudFormation template for this code.
+   ```
+   npm install -g aws-cdk
+   ```
 
-```
-$ cdk synth
-```
+5. CDK スタックをデプロイします：
 
-To add additional dependencies, for example other CDK libraries, just add
-them to your `setup.py` file and rerun the `pip install -r requirements.txt`
-command.
+   ```
+   cdk deploy
+   ```
 
-## Useful commands
+6. パラメータストアに環境変数を設定
+    - `/update2notion/notion-api-key`: Notion API キー
+    - `/update2notion/notion-db-id: Notion データベース ID
+    - `/update2notion/openai-api-key`: OpenAI API キー
+   ```
+   aws ssm put-parameter --name "/update2notion/notion-api-key" --value secret_hogehoge" --type SecureString
+   aws ssm put-parameter --name "/update2notion/notion-db-id" --value "hogehoge" --type SecureString
+   aws ssm put-parameter --name "/update2notion/openai-api-key" --value "sk-hogehoge" --type SecureString
+   ```
 
- * `cdk ls`          list all stacks in the app
- * `cdk synth`       emits the synthesized CloudFormation template
- * `cdk deploy`      deploy this stack to your default AWS account/region
- * `cdk diff`        compare deployed stack with current state
- * `cdk docs`        open CDK documentation
+## 使用方法
 
-Enjoy!
+デプロイが完了すると、Step Functions のステートマシンが作成されます。このステートマシンを定期的に実行するように設定することで、最新の AWS ニュースを自動的に処理し、Notion データベースに追加できます。
+
+手動で実行する場合は、AWS コンソールから Step Functions のステートマシンを開き、実行を開始します。
+
+## 主要コンポーネント
+
+1. `fetch_news` Lambda 関数: AWS のニュースフィードから最新の記事を取得します。
+2. `process_article` Lambda 関数: 記事の内容をスクレイピングし、翻訳、要約、タグ付けを行い、Notion に追加します。
+3. Step Functions: 全体のワークフローを管理し、複数の記事の並行処理を可能にします。
+4. DynamoDB テーブル: AWS サービス名とその略称を管理します。

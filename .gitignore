@@ -2,6 +2,9 @@
 .cdk.staging
 cdk.out
 
+# Temporary Lambda build directories
+temp_lambda_build*/
+
 # Python
 __pycache__/
 *.py[cod]

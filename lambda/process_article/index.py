@@ -4,7 +4,7 @@ import boto3
 import requests
 import traceback
 import logging
-from datetime import datetime
+from datetime import datetime, timezone  # timezone を追加
 from botocore.exceptions import ClientError
 from bs4 import BeautifulSoup
 from openai import OpenAI
@@ -261,14 +261,21 @@ def add_to_notion(item, tags, article_content):
         for block in original_blocks
     ]
 
-    # RFC 2822形式の日付文字列をパースし、UTC時間に変換
-    published_date = parsedate_to_datetime(item['published'])
-    if published_date.tzinfo is None:
-        published_date = pytz.utc.localize(published_date)
+    # published_date の処理を修正
+    if 'published' in item and item['published']:
+        try:
+            published_date = datetime.fromisoformat(item['published'])
+            if published_date.tzinfo is None:
+                published_date = published_date.replace(tzinfo=timezone.utc)
+            iso_date = published_date.isoformat()
+        except ValueError:
+            # ISO形式でない場合、現在時刻をUTCで使用
+            published_date = datetime.now(timezone.utc)
+            iso_date = published_date.isoformat()
     else:
-        published_date = published_date.astimezone(pytz.utc)
-    
-    iso_date = published_date.isoformat()
+        # published が存在しないか None の場合、現在時刻をUTCで使用
+        published_date = datetime.now(timezone.utc)
+        iso_date = published_date.isoformat()
 
     data = {
         "parent": {"database_id": DB_ID},
