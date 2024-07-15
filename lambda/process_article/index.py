@@ -1,12 +1,13 @@
+import os
 import json
 import logging
 import os
 import traceback
 from datetime import datetime, timezone
 
-from logger import log_debug, log_info, log_error
+from common import log_debug, log_info, log_error, get_parameter
 from aws_services import get_aws_service_list
-from article_processing import tag_article, scrape_and_translate_article_content
+from article_processing import process_article
 from notion_integration import add_to_notion
 
 # 環境変数から値を取得
@@ -26,13 +27,16 @@ def handler(event, context):
                   article_link=event['link'])
 
         service_list, service_dict = get_aws_service_list(SERVICES_TABLE_NAME)
-        tags = tag_article(event['title'], service_list, service_dict, OPENAI_API_KEY_PARAM)
-        article_content = scrape_and_translate_article_content(event['link'], OPENAI_API_KEY_PARAM)
-        notion_result = add_to_notion(event, tags, article_content, NOTION_API_KEY_PARAM, NOTION_DB_ID_PARAM)
+        
+        # process_article 関数を使用して記事を処理
+        processed_article = process_article(event, service_list, service_dict, OPENAI_API_KEY_PARAM)
+        
+        # Notionに追加
+        notion_result = add_to_notion(processed_article, NOTION_API_KEY_PARAM, NOTION_DB_ID_PARAM)
 
         result = {
-            'articleTitle': event['title'],
-            'tags': tags,
+            'articleTitle': processed_article['title'],
+            'tags': processed_article['tags'],
             'addedToNotion': notion_result is not None,
             'notionPageId': notion_result
         }

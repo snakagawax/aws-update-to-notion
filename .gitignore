@@ -4,6 +4,7 @@ cdk.out
 
 # Temporary Lambda build directories
 temp_lambda_build*/
+temp/
 
 # Python
 __pycache__/

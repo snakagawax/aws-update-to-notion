@@ -1,6 +1,6 @@
 import boto3
 from botocore.exceptions import ClientError
-from logger import log_debug
+from common import log_debug, log_info, log_error
 
 def get_aws_service_list(table_name):
     """
@@ -22,36 +22,18 @@ def get_aws_service_list(table_name):
 
     try:
         response = services_table.scan()
-        additional_services = [
-            (item['service_name'], item['abbreviation'])
-            for item in response['Items']
-        ]
-        service_dict = {full: abbr for full, abbr in additional_services}
-        services = set(service_dict.keys()).union(set(service_dict.values()))
-        service_list = sorted(list(services))
+        items = response['Items']
+        
+        # ページネーションの処理
+        while 'LastEvaluatedKey' in response:
+            response = services_table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+            items.extend(response['Items'])
+
+        service_dict = {item['service_name']: item['abbreviation'] for item in items}
+        service_list = list(set(service_dict.keys()).union(set(service_dict.values())))
+        
         log_debug("AWS service list retrieved", service_count=len(service_list))
         return service_list, service_dict
     except ClientError as e:
-        log_debug("Error retrieving AWS service list", error=str(e))
-        raise
-
-def get_parameter(name):
-    """
-    AWS Systems Manager Parameter Storeからパラメータを取得する関数
-
-    Args:
-        name (str): パラメータ名
-
-    Returns:
-        str: パラメータの値
-
-    Raises:
-        ClientError: Parameter Storeへのアクセス中にエラーが発生した場合
-    """
-    ssm = boto3.client('ssm')
-    try:
-        response = ssm.get_parameter(Name=name, WithDecryption=True)
-        return response['Parameter']['Value']
-    except ClientError as e:
-        log_debug(f"Error retrieving parameter {name}", error=str(e))
+        log_error("Error retrieving AWS service list", error=str(e))
         raise

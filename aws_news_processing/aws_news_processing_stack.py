@@ -23,7 +23,8 @@ class AwsNewsProcessingStack(Stack):
     def create_resources(self):
         # DynamoDB table for storing service names
         services_table = dynamodb.Table(
-            self, "ServicesTable",
+            self, "AwsServiceTable",
+            table_name="AwsNewsProcessingStack-AwsServiceTable",
             partition_key=dynamodb.Attribute(name="service_name", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )
@@ -43,9 +44,29 @@ class AwsNewsProcessingStack(Stack):
             resources=["*"]
         ))
         lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["dynamodb:Scan"],
+            actions=["dynamodb:Scan", "dynamodb:PutItem"],
             resources=[services_table.table_arn]
         ))
+        lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=[
+                "iam:GenerateServiceLastAccessedDetails",
+                "iam:GetServiceLastAccessedDetails"
+            ],
+            resources=["*"]
+        ))
+
+        # Lambda function to update services
+        update_services_lambda = _lambda.Function(
+            self, "UpdateServicesLambdaFunction",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            handler="index.handler",
+            code=_lambda.Code.from_asset(self.bundle_lambda_asset("lambda/update_services")),
+            timeout=Duration.minutes(15),
+            environment={
+                "SERVICES_TABLE_NAME": services_table.table_name,
+            },
+            role=lambda_role,
+        )
 
         # Lambda function to fetch news
         fetch_news_lambda = _lambda.Function(
@@ -74,7 +95,7 @@ class AwsNewsProcessingStack(Stack):
                 "OPENAI_API_KEY_PARAM": "/update2notion/openai-api-key",
             },
             role=lambda_role,
-            memory_size=1024,
+            memory_size=512,
         )
 
         # Step Functions IAM role
@@ -84,10 +105,17 @@ class AwsNewsProcessingStack(Stack):
         )
 
         # Grant Lambda invoke permissions to Step Functions
+        update_services_lambda.grant_invoke(step_functions_role)
         fetch_news_lambda.grant_invoke(step_functions_role)
         process_article_lambda.grant_invoke(step_functions_role)
 
         # Step Functions definition
+        update_services_task = sfn_tasks.LambdaInvoke(
+            self, "UpdateServicesTask",
+            lambda_function=update_services_lambda,
+            output_path="$.Payload",
+        )
+
         fetch_news_task = sfn_tasks.LambdaInvoke(
             self, "FetchNewsTask",
             lambda_function=fetch_news_lambda,
@@ -108,7 +136,7 @@ class AwsNewsProcessingStack(Stack):
             result_path="$.processedArticles",
         ).iterator(process_article_task)
 
-        definition = fetch_news_task.next(map_state)
+        definition = update_services_task.next(fetch_news_task.next(map_state))
 
         state_machine = sfn.StateMachine(
             self, "AwsNewsProcessingStateMachine",

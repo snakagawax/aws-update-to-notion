@@ -1,12 +1,10 @@
 import json
 import traceback
-import boto3
-from bs4 import BeautifulSoup
 import requests
+from bs4 import BeautifulSoup
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
-from logger import log_debug
-from aws_services import get_parameter
+from common import log_debug, log_info, log_error, get_parameter
 
 def initialize_openai_client(openai_api_key_param):
     """
@@ -36,74 +34,89 @@ def call_openai_api(messages, openai_api_key_param):
     """
     client = initialize_openai_client(openai_api_key_param)
     return client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4o",
         messages=messages
     )
 
-def tag_article(article_title, service_list, service_dict, openai_api_key_param):
+def tag_article(article_title, article_content, service_list, service_dict, openai_api_key_param):
     """
-    記事のタイトルに基づいてAWSサービスのタグを付ける関数
+    記事のタイトルと本文に基づいてAWSサービスのタグを1つ付ける関数（改善版）
 
     Args:
         article_title (str): 記事のタイトル
-        service_list (list): AWSサービス名のリスト
+        article_content (str): 記事の本文
+        service_list (list): AWSサービス名のリスト（この引数は使用しませんが、互換性のために残します）
         service_dict (dict): サービス名とその略称の辞書
         openai_api_key_param (str): OpenAI API キーを格納するパラメータ名
 
     Returns:
-        list: タグのリスト
+        list: 1つのタグを含むリスト、またはタグが見つからない場合は空のリスト
     """
-    prompt = f"""You are an AI assistant that tags AWS article titles with 
-    relevant AWS service names. Your task is to identify the specific AWS 
-    service mentioned in the given article title. Follow these rules strictly:
+    log_debug("Starting tag_article function", 
+              article_title=article_title, 
+              content_length=len(article_content),
+              service_dict_length=len(service_dict))
 
-    1. Use the exact AWS service names as provided in the list, preferring 
-       abbreviations when available.
-    2. For services with known abbreviations (e.g., "AWS IAM" for "AWS Identity 
-       and Access Management"), use the abbreviation.
-    3. If the article mentions a specific feature of a service, tag it with 
-       the main service name or its abbreviation.
-    4. For new services like Amazon Q, use the exact name as provided in the 
-       list.
-    5. If multiple services are mentioned, return only the most relevant one.
-    6. If no relevant service is found, if the article is about a general AWS 
-       feature, program, or internal tool (like AWS Partner Central), respond 
-       with 'Not Found'.
-    7. Respond with ONLY the relevant AWS service name or 'Not Found'. Do not 
-       include any other text.
-    8. Be precise in matching service names. Only use the exact names from the 
-       provided list.
+    # service_dict から略称のリストを作成
+    abbreviations = list(set(service_dict.values()))
 
-    AWS service names (with abbreviations when available):
-    {', '.join([f"{full} ({abbr})" if full != abbr else full 
-                for full, abbr in service_dict.items()])}
-    {', '.join(service for service in service_list 
-               if service not in service_dict.keys() 
-               and service not in service_dict.values())}
+    candidate_tags_prompt = f"""You are an AI assistant specialized in identifying the most relevant AWS service mentioned in technical articles. 
+    Your task is to analyze the given article title and content, and identify the single most relevant AWS service.
+
+    Rules:
+    1. Identify the SINGLE most relevant AWS service, prioritizing the service mentioned in the title if applicable.
+    2. Use the exact AWS service abbreviation as provided in the list, preserving the exact capitalization, spacing, and punctuation.
+    3. If a specific feature of a service is mentioned, use the main service abbreviation.
+    4. If no relevant service is found, respond with 'No relevant AWS service found'.
+    5. Be precise in your identification - choose the service that best represents the main focus of the article.
+    6. Do not confuse similar service names. Ensure you select the exact match from the provided list.
+    7. Do not modify the service abbreviations in any way. Use them exactly as they appear in the list.
 
     Article title: {article_title}
 
-    Your response:"""
+    Article content (excerpt): {article_content[:2000]}  # 最初の2000文字を使用
+
+    List of AWS service abbreviations (use exact abbreviations as provided):
+    {', '.join(abbreviations)}
+
+    Your response should be the single most relevant AWS service abbreviation, exactly as it appears in the list above:"""
+
+    log_debug("Generated candidate tag prompt", prompt_length=len(candidate_tags_prompt))
 
     try:
-        log_debug("Invoking OpenAI model for tagging",
-                  article_title=article_title)
-        response = call_openai_api([
-            {"role": "system", "content": "You are an AI assistant that tags AWS article titles."},
-            {"role": "user", "content": prompt}
+        candidate_tag_response = call_openai_api([
+            {"role": "system", "content": "You are an AI assistant that identifies the most relevant AWS service in technical articles."},
+            {"role": "user", "content": candidate_tags_prompt}
         ], openai_api_key_param)
         
-        result = response.choices[0].message.content.strip()
+        log_debug("OpenAI API response received", response_length=len(str(candidate_tag_response)))
 
-        if result != 'Not Found' and (result in service_list or
-                                      result in service_dict.values()):
-            log_debug("Article tagged successfully",
-                      article_title=article_title, tag=result)
-            return [result]
-        log_debug("No relevant tag found", article_title=article_title)
+        candidate_tag = candidate_tag_response.choices[0].message.content.strip()
+        log_debug("Received candidate tag from OpenAI", candidate_tag=candidate_tag)
+        
+        # 厳格なマッチング（完全一致）
+        if candidate_tag in abbreviations:
+            log_debug("Valid tag found (strict match)", valid_tag=candidate_tag)
+            return [candidate_tag]
+        
+        # 緩和されたマッチング
+        relaxed_match = None
+        for abbr in abbreviations:
+            if candidate_tag.lower() == abbr.lower():
+                relaxed_match = abbr
+                break
+        
+        if relaxed_match:
+            log_debug("Valid tag found (relaxed match)", valid_tag=relaxed_match, original_suggestion=candidate_tag)
+            return [relaxed_match]
+        
+        log_debug("No valid tag found", article_title=article_title, suggested_tag=candidate_tag)
         return []
+
     except Exception as e:
-        log_debug("Error tagging article", error=str(e),
+        log_debug("Error in tag_article", 
+                  error=str(e),
+                  error_type=type(e).__name__,
                   traceback=traceback.format_exc(),
                   article_title=article_title)
         return []
@@ -236,4 +249,50 @@ def scrape_and_translate_article_content(url, openai_api_key_param):
             "translated_content": "記事の本文を取得できませんでした。",
             "original_content": "",
             "urls": []
+        }
+
+def process_article(event, service_list, service_dict, openai_api_key_param):
+    """
+    記事を処理する関数
+
+    Args:
+        event (dict): 処理する記事の情報
+        service_list (list): AWSサービス名のリスト
+        service_dict (dict): サービス名とその略称の辞書
+        openai_api_key_param (str): OpenAI API キーを格納するパラメータ名
+
+    Returns:
+        dict: 処理された記事の情報
+    """
+    try:
+        log_debug("Processing article", article_title=event['title'])
+        
+        article_content = scrape_and_translate_article_content(event['link'], openai_api_key_param)
+        log_debug("Article content scraped and translated", article_title=event['title'], content_length=len(article_content['original_content']))
+        
+        log_debug("Starting tag_article", article_title=event['title'])
+        tags = tag_article(event['title'], article_content['original_content'][:2000], service_list, service_dict, openai_api_key_param)
+        log_debug("tag_article completed", article_title=event['title'], tags=tags)
+        
+        result = {
+            'title': event['title'],
+            'link': event['link'],
+            'tags': tags,
+            'summary': article_content['summary'],
+            'translated_content': article_content['translated_content'],
+            'original_content': article_content['original_content'],
+            'urls': article_content['urls']
+        }
+        
+        log_debug("Article processed successfully", article_title=event['title'], result=result)
+        return result
+    except Exception as e:
+        log_debug("Error processing article", 
+                  error=str(e), 
+                  traceback=traceback.format_exc(),
+                  article_title=event['title'])
+        return {
+            'title': event['title'],
+            'link': event['link'],
+            'error': str(e)
         }

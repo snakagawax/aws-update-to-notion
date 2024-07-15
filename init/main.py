@@ -29,6 +29,7 @@ def initialize_dynamodb_services():
         ("Amazon EMR", "Amazon EMR"),
         ("Amazon Cognito", "Amazon Cognito"),
         ("AWS Backup", "AWS Backup"),
+        ("AWS Systems Manager", "AWS Systems Manager"),
     ]
     
     for service_name, abbreviation in initial_services:

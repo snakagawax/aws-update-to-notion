@@ -1,16 +1,13 @@
 import requests
 from datetime import datetime, timezone
-from logger import log_debug
-from aws_services import get_parameter
+from common import log_debug, log_info, log_error, get_parameter
 
-def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_id_param):
+def add_to_notion(processed_article, notion_api_key_param, notion_db_id_param):
     """
-    記事の内容をNotionデータベースに追加する関数
+    処理された記事の内容をNotionデータベースに追加する関数
 
     Args:
-        item (dict): 記事の基本情報（タイトル、リンクなど）
-        tags (list): 記事に付けられたタグのリスト
-        article_content (dict): 記事の内容（要約、翻訳されたコンテンツ、オリジナルコンテンツ、URL）
+        processed_article (dict): 処理された記事の情報
         notion_api_key_param (str): Notion API キーを格納するパラメータ名
         notion_db_id_param (str): Notion データベース ID を格納するパラメータ名
 
@@ -43,8 +40,8 @@ def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_i
 
         return chunks
 
-    content_blocks = split_content(article_content['translated_content'])
-    original_blocks = split_content(article_content['original_content'])
+    content_blocks = split_content(processed_article['translated_content'])
+    original_blocks = split_content(processed_article['original_content'])
 
     children = [
         {"object": "block", "type": "heading_2", "heading_2": {
@@ -54,7 +51,7 @@ def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_i
         {"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {
             "rich_text": [{"type": "text", "text": {"content": line.lstrip('- ')}}]
         }}
-        for line in article_content['summary'].split('\n') if line.strip()
+        for line in processed_article['summary'].split('\n') if line.strip()
     ] + [
         {"object": "block", "type": "heading_2", "heading_2": {
             "rich_text": [{"type": "text", "text": {"content": "内容"}}]
@@ -72,7 +69,7 @@ def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_i
         {"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {
             "rich_text": [{"type": "text", "text": {"content": url}}]
         }}
-        for url in article_content['urls']
+        for url in processed_article['urls']
     ] + [
         {"object": "block", "type": "heading_2", "heading_2": {
             "rich_text": [{"type": "text", "text": {"content": "原文"}}]
@@ -84,9 +81,10 @@ def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_i
         for block in original_blocks
     ]
 
-    if 'published' in item and item['published']:
+    # 公開日時の処理
+    if 'published' in processed_article and processed_article['published']:
         try:
-            published_date = datetime.fromisoformat(item['published'])
+            published_date = datetime.fromisoformat(processed_article['published'])
             if published_date.tzinfo is None:
                 published_date = published_date.replace(tzinfo=timezone.utc)
             iso_date = published_date.isoformat()
@@ -101,10 +99,10 @@ def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_i
         "parent": {"database_id": db_id},
         "properties": {
             "タイトル": {
-                "title": [{"text": {"content": item['title'][:2000]}}]
+                "title": [{"text": {"content": processed_article['title'][:2000]}}]
             },
             "URL": {
-                "url": item['link']
+                "url": processed_article['link']
             },
             "公開日時": {
                 "date": {"start": iso_date}
@@ -113,9 +111,9 @@ def add_to_notion(item, tags, article_content, notion_api_key_param, notion_db_i
         "children": children
     }
 
-    if tags:
+    if processed_article['tags']:
         data["properties"]["タグ"] = {
-            "multi_select": [{"name": tag} for tag in tags]
+            "multi_select": [{"name": tag} for tag in processed_article['tags']]
         }
 
     try:
