@@ -1,5 +1,6 @@
 import requests
 from datetime import datetime, timezone
+import json
 from common import log_debug, log_info, log_error, get_parameter
 
 def add_to_notion(processed_article, notion_api_key_param, notion_db_id_param):
@@ -90,14 +91,14 @@ def add_to_notion(processed_article, notion_api_key_param, notion_db_id_param):
     # 公開日時の処理
     if 'published' in processed_article and processed_article['published']:
         try:
-            published_date = datetime.fromisoformat(processed_article['published'])
-            if published_date.tzinfo is None:
-                published_date = published_date.replace(tzinfo=timezone.utc)
+            published_date = datetime.fromisoformat(processed_article['published'].replace('Z', '+00:00'))
             iso_date = published_date.isoformat()
         except ValueError:
+            log_debug("Invalid date format, using current time", date=processed_article['published'])
             published_date = datetime.now(timezone.utc)
             iso_date = published_date.isoformat()
     else:
+        log_debug("No published date provided, using current time")
         published_date = datetime.now(timezone.utc)
         iso_date = published_date.isoformat()
 

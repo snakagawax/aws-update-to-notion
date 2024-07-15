@@ -31,6 +31,9 @@ def handler(event, context):
         # process_article 関数を使用して記事を処理
         processed_article = process_article(event, service_list, service_dict, OPENAI_API_KEY_PARAM)
         
+        # 公開日時をprocessed_articleに追加
+        processed_article['published'] = event.get('published')
+
         # Notionに追加（または既存ページIDを取得）
         notion_result = add_to_notion(processed_article, NOTION_API_KEY_PARAM, NOTION_DB_ID_PARAM)
 
