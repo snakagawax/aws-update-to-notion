@@ -12,7 +12,7 @@ def add_to_notion(processed_article, notion_api_key_param, notion_db_id_param):
         notion_db_id_param (str): Notion データベース ID を格納するパラメータ名
 
     Returns:
-        str: 作成されたNotionページのID、エラー時はNone
+        str: 作成されたNotionページのID、既存ページの場合はそのID、エラー時はNone
     """
     notion_api_key = get_parameter(notion_api_key_param)
     db_id = get_parameter(notion_db_id_param)
@@ -22,6 +22,12 @@ def add_to_notion(processed_article, notion_api_key_param, notion_db_id_param):
         "Content-Type": "application/json",
         "Notion-Version": "2022-06-28"
     }
+
+    # 既存のページをチェック
+    existing_page_id = check_existing_notion_page(notion_api_key, db_id, processed_article['link'])
+    if existing_page_id:
+        log_info("Article already exists in Notion, skipping addition", article_link=processed_article['link'])
+        return existing_page_id
 
     def split_content(content, max_length=2000):
         words = content.split()
@@ -128,4 +134,44 @@ def add_to_notion(processed_article, notion_api_key_param, notion_db_id_param):
             content=e.response.content.decode('utf-8') if hasattr(e, 'response') else None,
             request_data=json.dumps(data, ensure_ascii=False)
         )
+        return None
+
+def check_existing_notion_page(notion_api_key, db_id, article_link):
+    """
+    Notionデータベース内に同じリンクを持つページが存在するかチェックする関数
+
+    Args:
+        notion_api_key (str): Notion API キー
+        db_id (str): Notion データベース ID
+        article_link (str): チェックする記事のリンク
+
+    Returns:
+        str: 既存ページのID、存在しない場合はNone
+    """
+    headers = {
+        "Authorization": f"Bearer {notion_api_key}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28"
+    }
+
+    data = {
+        "filter": {
+            "property": "URL",
+            "url": {
+                "equals": article_link
+            }
+        }
+    }
+
+    try:
+        response = requests.post(f"https://api.notion.com/v1/databases/{db_id}/query", headers=headers, json=data)
+        response.raise_for_status()
+        results = response.json().get("results", [])
+        if results:
+            log_debug("Found existing Notion page", article_link=article_link, page_id=results[0]["id"])
+            return results[0]["id"]
+        log_debug("No existing Notion page found", article_link=article_link)
+        return None
+    except requests.exceptions.RequestException as e:
+        log_error("Error checking existing Notion page", error=str(e), article_link=article_link)
         return None

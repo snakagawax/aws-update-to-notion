@@ -31,18 +31,19 @@ def handler(event, context):
         # process_article 関数を使用して記事を処理
         processed_article = process_article(event, service_list, service_dict, OPENAI_API_KEY_PARAM)
         
-        # Notionに追加
+        # Notionに追加（または既存ページIDを取得）
         notion_result = add_to_notion(processed_article, NOTION_API_KEY_PARAM, NOTION_DB_ID_PARAM)
 
         result = {
             'articleTitle': processed_article['title'],
             'tags': processed_article['tags'],
             'addedToNotion': notion_result is not None,
-            'notionPageId': notion_result
+            'notionPageId': notion_result,
+            'skipped': notion_result is not None and notion_result != processed_article['link']
         }
         log_info("Article processing completed", result=result)
         return {
-            'statusCode': 200 if notion_result else 500,
+            'statusCode': 200,
             'body': json.dumps(result)
         }
     except Exception as e:

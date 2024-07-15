@@ -9,6 +9,8 @@ from aws_cdk import (
     aws_iam as iam,
     aws_stepfunctions as sfn,
     aws_stepfunctions_tasks as sfn_tasks,
+    aws_events as events,
+    aws_events_targets as targets,
     Duration,
     CfnOutput,
 )
@@ -144,6 +146,21 @@ class AwsNewsProcessingStack(Stack):
             timeout=Duration.minutes(30),
             role=step_functions_role,
         )
+
+        # EventBridge ルールの作成
+        rule = events.Rule(
+            self, "ScheduleRule",
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="21,3,9,15",  # UTC時間で6時間ごと（JST 06:00, 12:00, 18:00, 00:00に相当）
+                month="*",
+                week_day="*",
+                year="*",
+            ),
+        )
+
+        # StepFunctions ステートマシンをターゲットとして追加
+        rule.add_target(targets.SfnStateMachine(state_machine))
 
         # Output the ARN of the state machine
         CfnOutput(self, "StateMachineArn", value=state_machine.state_machine_arn)
