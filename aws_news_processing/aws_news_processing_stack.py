@@ -46,13 +46,6 @@ class AwsNewsProcessingStack(Stack):
             actions=["dynamodb:Scan"],
             resources=[services_table.table_arn]
         ))
-        lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=[
-                "bedrock:InvokeModel",
-                "bedrock:ListFoundationModels"
-            ],
-            resources=["*"]
-        ))
 
         # Lambda function to fetch news
         fetch_news_lambda = _lambda.Function(
